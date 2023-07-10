@@ -6,7 +6,6 @@ using Elsa.Workflows.Core.Attributes;
 using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Models;
 using JetBrains.Annotations;
-using HttpRequestHeaders = Elsa.Http.Models.HttpRequestHeaders;
 
 namespace Elsa.SemanticKernel;
 
@@ -117,7 +116,5 @@ public class SemanticKernelSkill : Activity
         return result;
     }
 
-
-}
 
 }
