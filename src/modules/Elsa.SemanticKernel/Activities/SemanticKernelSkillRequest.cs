@@ -1,68 +1,64 @@
-using System.Net.Http.Headers;
-using System.Text.Json.Serialization;
 using Elsa.Extensions;
 using Elsa.Workflows.Core;
 using Elsa.Workflows.Core.Attributes;
-using Elsa.Workflows.Core.Contracts;
 using Elsa.Workflows.Core.Models;
 using JetBrains.Annotations;
+using Microsoft.Extensions.Logging;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Connectors.Memory.Qdrant;
+using Microsoft.SemanticKernel.Connectors.AI.OpenAI.TextEmbedding;
+using Microsoft.SemanticKernel.Memory;
+using Microsoft.SemanticKernel.Orchestration;
+using Microsoft.SemanticKernel.Reliability;
 
 namespace Elsa.SemanticKernel;
 
 /// <summary>
-/// Invoke a Semantic Kernel skill. 
+/// Invoke a Semantic Kernel skill.
 /// </summary>
 [Activity("Elsa", "SemanticKernelSkill", "Invoke a Semantic Kernel skill. ", DisplayName = "Semantic Kernel Skill", Kind = ActivityKind.Task)]
 [PublicAPI]
-public class SemanticKernelSkill : Activity
+public class SemanticKernelSkill : CodeActivity<string>
 {
-    [ActivityInput(
-        Hint = "System Prompt.",
-        UIHint = ActivityInputUIHints.MultiText,
-        DefaultValue = new string[0])]
-    public string SystemPrompt { get; set; }
+    [Input(
+    Description = "System Prompt.",
+    UIHint = InputUIHints.MultiText,
+    DefaultValue = new string[0])]
+    public Input<string> SystemPrompt { get; set; } = default!;
 
-    [ActivityInput(
-        Hint = "User Input Prompt.",
-        UIHint = ActivityInputUIHints.MultiText,
-        DefaultValue = new string[0])]
-    public string Prompt { get; set; }
+    [Input(
+    Description = "User Input Prompt.",
+    UIHint = InputUIHints.MultiText,
+    DefaultValue = new string[0])]
+    public Input<string> Prompt { get; set; }
 
-    [ActivityInput(
-        Hint = "Max retries",
-        UIHint = ActivityInputUIHints.SingleLine,
-        DefaultValue = 9)]
-    public int MaxRetries { get; set; }
+    [Input(
+    Description = "Max retries",
+    UIHint = InputUIHints.SingleLine,
+    DefaultValue = 9)]
+    public Input<int> MaxRetries { get; set; }
 
-    [ActivityInput(
-        Hint = "The skill to invoke from the semantic kernel",
-        UIHint = ActivityInputUIHints.SingleLine,
-        DefaultValue = "PM")]
-    public string SkillName { get; set; }
+    [Input(
+    Description = "The skill to invoke from the semantic kernel",
+    UIHint = InputUIHints.SingleLine,
+    DefaultValue = "PM")]
+    public Input<string> SkillName { get; set; }
 
-    [ActivityInput(
-        Hint = "The function to invoke from the skill",
-        UIHint = ActivityInputUIHints.SingleLine,
-        DefaultValue = "README")]
-    public string FunctionName { get; set; }
-
-    /// <summary>
-    /// The output of the skill
-    /// </summary>
-    [Output(Description = "The output of the skill")]
-    public Output<object?> ParsedContent { get; set; } = default!;
+    [Input(
+    Description = "The function to invoke from the skill",
+    UIHint = InputUIHints.SingleLine,
+    DefaultValue = "README")]
+    public Input<string> FunctionName { get; set; }
 
     /// <inheritdoc />
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
-            var skillName = SkillName;
-            var functionName = FunctionName;
-            var SystemPrompt = SystemPrompt;
-            var prompt = Prompt;
-            var result = await ChatCompletion<string>(skillName, functionName, prompt);
-            Output = result;
-
-            return Done();
+        var skillName = SkillName.Get(context);
+        var functionName = FunctionName.Get(context);
+        var systemPrompt = SystemPrompt.Get(context);
+        var prompt = Prompt.Get(context);
+        var result = await ChatCompletion<string>(skillName, functionName, prompt);
+        context.SetResult(result);
     }
 
     private async Task<T> ChatCompletion<T>(string skillName, string functionName, string prompt)
@@ -73,28 +69,28 @@ public class SemanticKernelSkill : Activity
         using ILoggerFactory loggerFactory = LoggerFactory.Create(builder =>
         {
             builder
-                .SetMinimumLevel(kernelSettings.LogLevel ?? LogLevel.Warning);
+    .SetMinimumLevel(kernelSettings.LogLevel ?? LogLevel.Warning);
         });
         var memoryStore = new QdrantMemoryStore(new QdrantVectorDbClient("http://qdrant", 1536, port: 6333));
         var embedingGeneration = new AzureTextEmbeddingGeneration(kernelSettings.EmbeddingDeploymentOrModelId, kernelSettings.Endpoint, kernelSettings.ApiKey);
         var semanticTextMemory = new SemanticTextMemory(memoryStore, embedingGeneration);
 
         var kernel = new KernelBuilder()
-                            .WithLogger(loggerFactory.CreateLogger<IKernel>())
-                            .WithAzureChatCompletionService(kernelSettings.DeploymentOrModelId, kernelSettings.Endpoint, kernelSettings.ApiKey, true, kernelSettings.ServiceId, true)
-                            .WithMemory(semanticTextMemory)
-                            .WithConfiguration(kernelConfig)
-                            .Configure(c => c.SetDefaultHttpRetryConfig(new HttpRetryConfig
-                            {
-                                MaxRetryCount = MaxRetries,
-                                UseExponentialBackoff = true,
-                                //  MinRetryDelay = TimeSpan.FromSeconds(2),
-                                //  MaxRetryDelay = TimeSpan.FromSeconds(8),
-                                MaxTotalRetryTime = TimeSpan.FromSeconds(300),
-                                //  RetryableStatusCodes = new[] { HttpStatusCode.TooManyRequests, HttpStatusCode.RequestTimeout },
-                                //  RetryableExceptions = new[] { typeof(HttpRequestException) }
-                            }))
-                            .Build();
+        .WithLogger(loggerFactory.CreateLogger<IKernel>())
+        .WithAzureChatCompletionService(kernelSettings.DeploymentOrModelId, kernelSettings.Endpoint, kernelSettings.ApiKey, true, kernelSettings.ServiceId, true)
+        .WithMemory(semanticTextMemory)
+        .WithConfiguration(kernelConfig)
+        .Configure(c => c.SetDefaultHttpRetryConfig(new HttpRetryConfig
+        {
+            MaxRetryCount = MaxRetries,
+            UseExponentialBackoff = true,
+            // MinRetryDelay = TimeSpan.FromSeconds(2),
+            // MaxRetryDelay = TimeSpan.FromSeconds(8),
+            MaxTotalRetryTime = TimeSpan.FromSeconds(300),
+            // RetryableStatusCodes = new[] { HttpStatusCode.TooManyRequests, HttpStatusCode.RequestTimeout },
+            // RetryableExceptions = new[] { typeof(HttpRequestException) }
+        }))
+        .Build();
 
         var interestingMemories = kernel.Memory.SearchAsync("ImportedMemories", Prompt, 2);
         var wafContext = "Consider the following contextual snippets:";
@@ -102,10 +98,11 @@ public class SemanticKernelSkill : Activity
         {
             wafContext += $"\n {memory.Metadata.Text}";
         }
+
         var skillConfig = SemanticFunctionConfig.ForSkillAndFunction(skillName, functionName);
         var function = kernel.CreateSemanticFunction(skillConfig.PromptTemplate, skillConfig.Name, skillConfig.SkillName,
-                                                skillConfig.Description, skillConfig.MaxTokens, skillConfig.Temperature,
-                                                skillConfig.TopP, skillConfig.PPenalty, skillConfig.FPenalty);
+        skillConfig.Description, skillConfig.MaxTokens, skillConfig.Temperature,
+        skillConfig.TopP, skillConfig.PPenalty, skillConfig.FPenalty);
 
         var context = new ContextVariables();
         context.Set("input", prompt);
@@ -115,6 +112,4 @@ public class SemanticKernelSkill : Activity
         var result = typeof(T) != typeof(string) ? JsonSerializer.Deserialize<T>(answer.ToString()) : (T)(object)answer.ToString();
         return result;
     }
-
-
 }
